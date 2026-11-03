@@ -109,13 +109,7 @@ class App {
     const d = new Date();
     const t = [d.getHours(), d.getMinutes(), d.getSeconds()].map(x => String(x).padStart(2, "0")).join(":");
     this.logs.push({ t, kind, text, user });
-    if (this.logs.length > 500) this.logs = this.logs.slice(-500);
-    // lưu lại vào file nhat-ky.log cạnh server để tắt tool vẫn xem lại được
-    try {
-      const day = d.toISOString().slice(0, 10);
-      fs.appendFileSync(path.join(BASE, "nhat-ky.log"),
-        `[${day} ${t}] ${kind}${user ? " " + user : ""}: ${text}\n`, "utf-8");
-    } catch { /* ghi log lỗi thì thôi, không làm gián đoạn tool */ }
+    if (this.logs.length > 50) this.logs = this.logs.slice(-50);
   }
 
   broadcast(msg) {
@@ -139,7 +133,7 @@ class App {
         ...this.audioQueue.items.map(i => ({ user: i.user, text: i.text })),
       ],
       stats: this.stats,
-      logs: this.logs.slice(-100),
+      logs: this.logs.slice(-30),
     });
   }
 
