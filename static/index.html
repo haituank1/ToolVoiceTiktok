@@ -18,6 +18,9 @@
   label{display:block;font-size:12.5px;color:var(--muted);margin:10px 0 4px}
   input[type=text],input[type=number],select,textarea{width:100%;background:var(--card2);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:8px 10px;font-size:14px;font-family:inherit}
   textarea{min-height:92px;resize:vertical;line-height:1.45}
+  .groupBox{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0}
+  .groupBox textarea{min-height:70px;background:var(--card)}
+  .log .auto{color:#7dd3fc}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .row>*{flex:0 0 auto}
   .grow{flex:1 1 auto}
@@ -104,6 +107,7 @@
           <div class="stat"><b id="stTrung">0</b><span>bỏ do trùng/spam</span></div>
           <div class="stat"><b id="stDay">0</b><span>bỏ do hàng đầy</span></div>
           <div class="stat"><b id="stErr">0</b><span>lỗi chuyển giọng</span></div>
+          <div class="stat"><b id="stTuChen">0</b><span>câu tự chèn</span></div>
         </div>
       </div>
 
@@ -116,6 +120,7 @@
         <div class="row" style="margin-top:10px">
           <button id="btnTestComment" class="blue">Gửi comment giả vào tool</button>
         </div>
+        <div class="hint">Comment giả là của bạn nên được <b>ưu tiên</b>: không bị giới hạn “số voice chờ tối đa”, không dính cooldown/chống trùng — gửi lúc nào cũng vào hàng chờ. Chỉ vẫn lọc từ cấm / lệnh game như comment thật, để bạn test luôn bộ lọc.</div>
         <label style="margin-top:14px">Hoặc đọc thử 1 câu bất kỳ (kiểm tra giọng/tốc độ)</label>
         <input type="text" id="speakText" value="Xin chào các bạn, chúc buổi live vui vẻ">
         <div class="row" style="margin-top:10px">
@@ -190,6 +195,26 @@
 
         <label>⛔ Người dùng bị chặn — @tên hoặc tên hiển thị, mỗi dòng 1 người, comment của họ không bao giờ được đọc</label>
         <textarea id="cfgBanned" style="min-height:52px"></textarea>
+
+        <label style="margin-top:16px">🔁 Tự chèn câu có sẵn — tool tự đọc nhắc nhở/quảng cáo giúp bạn</label>
+        <div class="cols">
+          <div>
+            <label>Mỗi bao lâu chèn 1 câu (giây)</label>
+            <input type="number" id="cfgAutoSeconds" min="15" max="3600">
+          </div>
+          <div>
+            <label>Nhóm câu dùng cho live này</label>
+            <select id="cfgActiveGroup"></select>
+            <div class="hint">Live chùa chọn nhóm chùa, live bán hàng chọn nhóm bán hàng…</div>
+          </div>
+        </div>
+        <div class="chk"><input type="checkbox" id="cfgAutoEnabled"><label for="cfgAutoEnabled">Bật tự chèn (chỉ chèn khi panel đang mở; câu lấy ngẫu nhiên, không lặp lại câu vừa đọc)</label></div>
+        <div id="groupList"></div>
+        <div class="row">
+          <input type="text" id="newGroupName" placeholder="Tên nhóm mới, vd: Live game, Live sale tối…" style="flex:1">
+          <button id="btnAddGroup" class="ghost" type="button">＋ Thêm nhóm</button>
+        </div>
+        <div class="hint">Mỗi nhóm: sửa tên ngay trong ô của nhóm, gõ các câu <b>mỗi dòng 1 câu</b>. Câu tự chèn là của bạn nên luôn được thêm vào hàng chờ, không bị giới hạn “số voice chờ tối đa”. Sửa xong nhớ bấm Lưu cấu hình.</div>
 
         <div class="row" style="margin-top:14px">
           <button id="btnSaveCfg">💾 Lưu cấu hình</button>
@@ -271,6 +296,7 @@ function renderState(m){
   $("stDropped").textContent = s.dropped||0; $("stTuCam").textContent = s.tu_cam||0;
   $("stCooldown").textContent = s.cooldown||0; $("stTrung").textContent = s.spam_trung||0;
   $("stDay").textContent = s.hang_day||0; $("stErr").textContent = s.tts_error||0;
+  $("stTuChen").textContent = s.tu_chen||0;
   $("btnPause").textContent = m.paused ? "▶ Phát tiếp" : "⏸ Tạm dừng phát";
   if(!currentId && m.current) $("nowPlaying").textContent = "🔊 Đang đọc: " + (m.current.user ? m.current.user + ": " : "") + m.current.text;
   if(!currentId && !m.current) $("nowPlaying").textContent = "— đang chờ voice —";
@@ -297,8 +323,13 @@ $("btnDisconnect").onclick = ()=> post("/api/disconnect");
 $("btnPause").onclick = async ()=>{ const now = $("btnPause").textContent.includes("Tạm dừng"); await post("/api/pause", {paused: now}); };
 $("btnSkip").onclick = ()=> post("/api/skip");
 $("btnClear").onclick = ()=> post("/api/clear");
+const REASON_VI = { tu_cam: "trúng từ cấm", bo_qua: "trùng cụm từ bỏ qua (lệnh game)", qua_ngan: "quá ngắn",
+  qua_dai: "quá dài", link: "chứa link/tên miền", chi_emoji: "chỉ toàn emoji/ký tự, không có chữ",
+  nguoi_bi_chan: "tên này đang nằm trong danh sách người dùng bị chặn", spam_lap: "lặp 1 ký tự quá nhiều",
+  rong: "nội dung rỗng", hang_day: "hàng chờ quá tải", cooldown: "cooldown", spam_trung: "trùng câu" };
 $("btnTestComment").onclick = async ()=>{ const r = await post("/api/test-comment", {user: $("testUser").value, text: $("testText").value});
-  if(r.ok === false) alert("Comment giả bị bộ lọc bỏ — xem Nhật ký để biết lý do. Đúng ý đồ là nó bị chặn đó!"); };
+  if(r.ok === false) alert(r.error || "Gửi thất bại");
+  else if(!r.accepted) alert("Comment giả bị bộ lọc bỏ vì: " + (REASON_VI[r.reason] || r.reason || "lý do khác") + " — chi tiết xem thêm ở Nhật ký."); };
 $("btnSpeak").onclick = async ()=>{ const r = await post("/api/speak", {text: $("speakText").value}); if(r.ok === false) alert(r.error || "Đọc thử thất bại"); };
 $("cfgRate").oninput = ()=> $("rateVal").textContent = $("cfgRate").value + "%";
 
@@ -315,7 +346,57 @@ async function loadConfig(){
   $("cfgSoft").value = (cfg.softWords||[]).join("\n");
   $("cfgIgnore").value = (cfg.ignorePhrases||[]).join("\n");
   $("cfgBanned").value = (cfg.bannedUsers||[]).join("\n");
+  $("cfgAutoEnabled").checked = !!cfg.autoInsertEnabled;
+  $("cfgAutoSeconds").value = cfg.autoInsertSeconds ?? 180;
+  renderGroups(cfg.sentenceGroups || [], cfg.activeGroupId || "");
 }
+// ---------- nhóm câu tự chèn ----------
+function groupBoxHtml(g){
+  return `<div class="row"><input type="text" class="gName" value="${escapeHtml(g.name||"")}" style="flex:1">
+    <button class="ghost gDel" type="button">🗑 Xoá nhóm</button></div>
+    <textarea class="gSentences">${escapeHtml((g.sentences||[]).join("\n"))}</textarea>`;
+}
+function renderGroups(groups, activeId){
+  const list = $("groupList"); list.innerHTML = "";
+  const sel = $("cfgActiveGroup"); sel.innerHTML = "";
+  groups.forEach(g => {
+    const box = document.createElement("div");
+    box.className = "groupBox"; box.dataset.gid = g.id || "";
+    box.innerHTML = groupBoxHtml(g);
+    list.appendChild(box);
+    const opt = document.createElement("option");
+    opt.value = g.id || ""; opt.textContent = g.name || g.id || "";
+    sel.appendChild(opt);
+  });
+  if(activeId && [...sel.options].some(o => o.value === activeId)) sel.value = activeId;
+  syncGroupNames();
+  list.querySelectorAll(".gDel").forEach(btn => btn.onclick = ()=>{
+    const box = btn.closest(".groupBox"), gid = box.dataset.gid;
+    box.remove();
+    [...$("cfgActiveGroup").options].filter(o => o.value === gid).forEach(o => o.remove());
+  });
+  list.querySelectorAll(".gName").forEach(inp => inp.oninput = syncGroupNames);
+}
+function syncGroupNames(){
+  const sel = $("cfgActiveGroup"), cur = sel.value, names = {};
+  document.querySelectorAll(".groupBox").forEach(b => names[b.dataset.gid] = b.querySelector(".gName").value);
+  [...sel.options].forEach(o => { if(names[o.value] !== undefined) o.textContent = names[o.value]; });
+  if([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+function collectGroups(){
+  return [...document.querySelectorAll(".groupBox")].map(b => ({
+    id: b.dataset.gid,
+    name: b.querySelector(".gName").value.trim() || "Nhóm",
+    sentences: b.querySelector(".gSentences").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+  }));
+}
+$("btnAddGroup").onclick = ()=>{
+  const name = $("newGroupName").value.trim() || "Nhóm mới";
+  const gid = "g" + Date.now().toString(36);
+  const groups = collectGroups(); groups.push({ id: gid, name, sentences: [] });
+  renderGroups(groups, gid);
+  $("newGroupName").value = "";
+};
 $("btnSaveCfg").onclick = async ()=>{
   const body = {
     voice: $("cfgVoice").value, ratePercent: parseInt($("cfgRate").value||"0"),
@@ -323,7 +404,9 @@ $("btnSaveCfg").onclick = async ()=>{
     dedupeSeconds: parseInt($("cfgDedupe").value||"60"), maxChars: parseInt($("cfgMaxChars").value||"120"),
     readName: $("cfgReadName").checked, nameTemplate: $("cfgNameTemplate").value,
     truncateLong: $("cfgTruncate").checked, dropLinks: $("cfgDropLinks").checked,
-    blockedWords: $("cfgBlocked").value, softWords: $("cfgSoft").value, ignorePhrases: $("cfgIgnore").value, bannedUsers: $("cfgBanned").value
+    blockedWords: $("cfgBlocked").value, softWords: $("cfgSoft").value, ignorePhrases: $("cfgIgnore").value, bannedUsers: $("cfgBanned").value,
+    autoInsertEnabled: $("cfgAutoEnabled").checked, autoInsertSeconds: parseInt($("cfgAutoSeconds").value||"180"),
+    activeGroupId: $("cfgActiveGroup").value, sentenceGroups: collectGroups()
   };
   const r = await post("/api/config", body);
   $("cfgMsg").textContent = r.ok ? "✅ Đã lưu, đang áp dụng ngay." : "Lưu thất bại.";

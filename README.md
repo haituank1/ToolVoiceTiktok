@@ -33,6 +33,8 @@ comment cũ từ nhiều phút trước.
 - Hàng chờ tối đa, cooldown mỗi người, thời gian chống trùng câu, độ dài tối đa
 - **Từ cấm**: comment chứa là bỏ hẳn (tự bắt cả viết né: bỏ dấu, `đ.m`, `dmm`, chữ lặp).
 - **Từ đệm** (mặc định `vl`, `vcl`): không cấm câu — thường chỉ là từ nhấn mạnh ("vui vl" = vui lắm), tool chỉ tự xoá từ đó trước khi đọc. Muốn cấm hẳn thì chuyển lên ô Từ cấm.
+- **Tự chèn câu có sẵn**: các câu nhắc nhở/quảng cáo chia theo **nhóm** (mặc định có sẵn nhóm "Live chùa" và "Live bán hàng", sửa/thêm/xoá thoải mái). Chọn nhóm theo buổi live, đặt khoảng cách (giây), bật lên là tool tự lấy ngẫu nhiên 1 câu trong nhóm để đọc, không lặp câu vừa đọc.
+- **Ưu tiên của chủ phòng**: comment giả bấm tay và câu tự chèn luôn được thêm vào hàng chờ — không bị chặn bởi "số voice chờ tối đa", không dính cooldown/chống trùng. Giới hạn đó chỉ áp cho comment của khán giả. Comment giả vẫn qua lọc từ cấm/lệnh game để test bộ lọc.
   Bộ lọc phân biệt được các cặp dễ nhầm — `các`≠`cặc`, `đi`≠`đĩ`, `buổi`≠`buồi`,
   `con đi`/`đồ chơi cho` vẫn được đọc bình thường
 - **Cụm từ bỏ qua**: cho lệnh game / câu lặp lại (mặc định: `hoa rơi`, `nam mô a di đà phật`…)

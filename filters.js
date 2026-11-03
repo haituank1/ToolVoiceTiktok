@@ -91,7 +91,7 @@ class CommentFilter {
     return null;
   }
 
-  check(uniqueId, nickname, text, now) {
+  check(uniqueId, nickname, text, now, opts = {}) {
     const cfg = this.cfg;
     now = now === undefined ? Date.now() / 1000 : now;
     text = String(text || "").trim();
@@ -150,22 +150,26 @@ class CommentFilter {
       }
     }
 
-    const dedupeSec = parseInt(cfg.dedupeSeconds ?? 60);
-    const lastU = this._userLastText.get(uniqueId);
-    if (lastU && lastU.compact === compact && now - lastU.ts < dedupeSec)
-      return { ok: false, reason: "spam_trung", text };
-    const lastG = this._globalLastText.get(compact);
-    if (lastG !== undefined && now - lastG < Math.max(5, Math.floor(dedupeSec / 2)))
-      return { ok: false, reason: "spam_trung", text };
+    // opts.skipSpamRules: câu do CHỦ PHÒNG tự thêm (comment giả / tự chèn) thì
+    // bỏ qua chống trùng + cooldown — các luật đó chỉ để trị khán giả spam.
+    if (!opts.skipSpamRules) {
+      const dedupeSec = parseInt(cfg.dedupeSeconds ?? 60);
+      const lastU = this._userLastText.get(uniqueId);
+      if (lastU && lastU.compact === compact && now - lastU.ts < dedupeSec)
+        return { ok: false, reason: "spam_trung", text };
+      const lastG = this._globalLastText.get(compact);
+      if (lastG !== undefined && now - lastG < Math.max(5, Math.floor(dedupeSec / 2)))
+        return { ok: false, reason: "spam_trung", text };
 
-    const cooldown = parseInt(cfg.cooldownSeconds ?? 20);
-    const lastRead = this._userLastTime.get(uniqueId);
-    if (lastRead !== undefined && now - lastRead < cooldown)
-      return { ok: false, reason: "cooldown", text };
+      const cooldown = parseInt(cfg.cooldownSeconds ?? 20);
+      const lastRead = this._userLastTime.get(uniqueId);
+      if (lastRead !== undefined && now - lastRead < cooldown)
+        return { ok: false, reason: "cooldown", text };
 
-    this._userLastText.set(uniqueId, { compact, ts: now });
-    this._globalLastText.set(compact, now);
-    if (this._globalLastText.size > 2000) this._globalLastText.clear();
+      this._userLastText.set(uniqueId, { compact, ts: now });
+      this._globalLastText.set(compact, now);
+      if (this._globalLastText.size > 2000) this._globalLastText.clear();
+    }
     return { ok: true, reason: null, text };
   }
 

@@ -50,6 +50,22 @@ const DEFAULT_CONFIG = {
   softWords: ["vl", "vcl"],
   ignorePhrases: ["hoa rơi", "nam mô a di đà phật", "nam mô", "a di đà phật"],
   bannedUsers: [],
+  // Tự chèn câu có sẵn: cứ mỗi autoInsertSeconds giây, lấy ngẫu nhiên 1 câu
+  // trong nhóm đang chọn (activeGroupId) và đưa vào hàng chờ đọc.
+  autoInsertEnabled: false,
+  autoInsertSeconds: 180,
+  activeGroupId: "chua",
+  sentenceGroups: [
+    { id: "chua", name: "Live chùa", sentences: [
+      "Các bạn mới vào nhớ bấm theo dõi thầy để không lạc đường nhé",
+      "Bạn nào chưa có pháp danh thì bấm theo dõi, thầy tặng pháp danh cho nhé",
+      "Các bạn gõ Nam mô A Di Đà Phật để lạy Phật cùng thầy nhé",
+    ] },
+    { id: "banhang", name: "Live bán hàng", sentences: [
+      "Các chị ưng mẫu nào thì comment size để em chốt đơn nhé",
+      "Mẫu hôm nay số lượng có hạn, các chị nhanh tay kẻo hết nhé",
+    ] },
+  ],
 };
 
 function loadConfig() {
@@ -102,7 +118,9 @@ class App {
     this._currentDoneResolve = null;
     this._seq = 0;
     this.stats = { received: 0, accepted: 0, played: 0, dropped: 0, tu_cam: 0, bo_qua: 0,
-                   spam_trung: 0, cooldown: 0, hang_day: 0, tts_error: 0, khac: 0 };
+                   spam_trung: 0, cooldown: 0, hang_day: 0, tts_error: 0, khac: 0, tu_chen: 0 };
+    this._autoTimer = null;
+    this._autoLastIdx = -1;
     this.logs = [];
     this.tiktokStatus = { state: "idle", message: "Chưa kết nối TikTok." };
     this.source = new TikTokSource(
@@ -136,10 +154,10 @@ class App {
       current: this.current ? { user: this.current.user, text: this.current.text } : null,
       rawWaiting: this.rawQueue.size,
       audioWaiting: this.audioQueue.size,
-      waitingConvert: this.rawQueue.items.map(i => ({ user: i.user, text: i.text })),
+      waitingConvert: this.rawQueue.items.map(i => ({ user: i.auto ? "🔁 Tự chèn" : i.user, text: i.text })),
       waitingPlay: [
-        ...(this._heldItem && this._heldItem._held ? [{ user: this._heldItem.user, text: this._heldItem.text }] : []),
-        ...this.audioQueue.items.map(i => ({ user: i.user, text: i.text })),
+        ...(this._heldItem && this._heldItem._held ? [{ user: this._heldItem.auto ? "🔁 Tự chèn" : this._heldItem.user, text: this._heldItem.text }] : []),
+        ...this.audioQueue.items.map(i => ({ user: i.auto ? "🔁 Tự chèn" : i.user, text: i.text })),
       ],
       stats: this.stats,
       logs: this.logs.slice(-30),
@@ -147,38 +165,78 @@ class App {
   }
 
   // ---------------- tầng 1: bắt comment + lọc ----------------
-  ingestComment(uniqueId, nickname, text) {
+  // opts.owner: câu do CHỦ PHÒNG tự thêm (comment giả bấm tay) — được ưu tiên:
+  // bỏ qua cooldown/chống trùng và KHÔNG bị chặn bởi "số voice chờ tối đa".
+  // Các luật nội dung (từ cấm, lệnh game, link...) vẫn áp dụng như comment thật.
+  ingestComment(uniqueId, nickname, text, opts = {}) {
+    const owner = !!opts.owner;
     this.stats.received++;
-    const { ok, reason, text: cleaned } = this.filter.check(uniqueId || nickname, nickname, text);
+    const { ok, reason, text: cleaned } = this.filter.check(
+      uniqueId || nickname, nickname, text, undefined, { skipSpamRules: owner });
     if (!ok) {
       this.stats.dropped++;
       this.stats[reason in this.stats ? reason : "khac"]++;
       this.log("drop", `bỏ (${reason}): ${text}`, nickname);
       this.pushState();
-      return false;
+      return { accepted: false, reason };
     }
-    const waiting = this.audioQueue.size + this.rawQueue.size + (this.current ? 1 : 0);
-    if (waiting >= parseInt(this.cfg.maxQueue ?? 6)) {
+    if (!owner) {
+      const waiting = this.audioQueue.size + this.rawQueue.size + (this.current ? 1 : 0);
+      if (waiting >= parseInt(this.cfg.maxQueue ?? 6)) {
+        this.stats.dropped++; this.stats.hang_day++;
+        this.log("drop", `bỏ (hàng chờ đầy): ${cleaned}`, nickname);
+        this.pushState();
+        return { accepted: false, reason: "hang_day" };
+      }
+    }
+    if (this.rawQueue.size >= 100) { // chốt an toàn chống tràn bộ nhớ, không phải giới hạn người dùng
       this.stats.dropped++; this.stats.hang_day++;
-      this.log("drop", `bỏ (hàng chờ đầy): ${cleaned}`, nickname);
-      this.pushState();
-      return false;
+      return { accepted: false, reason: "hang_day" };
     }
-    if (this.rawQueue.size >= 100) {
-      this.stats.dropped++; this.stats.hang_day++;
-      return false;
-    }
-    this.rawQueue.push({ uid: uniqueId || nickname, user: nickname || uniqueId, text: cleaned });
-    this.filter.markRead(uniqueId || nickname);
+    this.rawQueue.push({ uid: uniqueId || nickname, user: nickname || uniqueId, text: cleaned, owner });
+    if (!owner) this.filter.markRead(uniqueId || nickname);
     this.stats.accepted++;
-    this.log("ok", cleaned, nickname);
+    this.log("ok", (opts.fake ? "(comment giả) " : "") + cleaned, nickname);
     this.pushState();
-    return true;
+    return { accepted: true };
+  }
+
+  // ---------------- tự chèn câu có sẵn ----------------
+  restartAutoInsert() {
+    if (this._autoTimer) { clearTimeout(this._autoTimer); this._autoTimer = null; }
+    if (!this.cfg.autoInsertEnabled) return;
+    const sec = Math.min(3600, Math.max(15, parseInt(this.cfg.autoInsertSeconds ?? 180) || 180));
+    this._autoTimer = setTimeout(() => {
+      this._autoTimer = null;
+      try { this.maybeAutoInsert(); } catch { /* lỗi 1 vòng thì thôi, vòng sau lại chạy */ }
+      this.restartAutoInsert();
+    }, sec * 1000);
+    if (this._autoTimer.unref) this._autoTimer.unref();
+  }
+
+  maybeAutoInsert() {
+    if (!this.cfg.autoInsertEnabled) return;
+    if (!this.clients.size) return; // panel không mở thì chèn cũng không ai phát
+    const groups = Array.isArray(this.cfg.sentenceGroups) ? this.cfg.sentenceGroups : [];
+    const g = groups.find(x => x && x.id === this.cfg.activeGroupId) || groups[0];
+    if (!g) return;
+    const sentences = (g.sentences || []).map(s => String(s).trim()).filter(Boolean);
+    if (!sentences.length || this.rawQueue.size >= 100) return;
+    let idx = Math.floor(Math.random() * sentences.length);
+    if (sentences.length > 1 && idx === this._autoLastIdx) idx = (idx + 1) % sentences.length;
+    this._autoLastIdx = idx;
+    const text = sentences[idx];
+    // Câu của chủ phòng: vào thẳng hàng chờ, không qua bộ lọc, không bị giới hạn hàng chờ.
+    this.rawQueue.push({ uid: "__auto__", user: "", text, auto: true });
+    this.stats.tu_chen++;
+    this.log("auto", `Tự chèn (${g.name}): ${text}`);
+    this.pushState();
   }
 
   // ---------------- tầng 2: chuyển giọng ----------------
   spokenText(item) {
     let text = normalizeText(item.text);
+    if (item.auto) return text; // câu tự chèn: đọc nguyên câu, không gắn tên ai cả
     if (this.cfg.readName) {
       let name = String(item.user || "").trim().slice(0, parseInt(this.cfg.nameMaxChars ?? 15));
       if (name && /[0-9a-zA-Zà-ỹÀ-Ỹ]/.test(name)) {
@@ -366,8 +424,17 @@ const server = http.createServer(async (req, res) => {
         if (typeof data[key] === "string")
           APP.cfg[key] = data[key].split(/\r?\n/).map(s => s.trim()).filter(Boolean);
       }
+      if (Array.isArray(data.sentenceGroups)) {
+        APP.cfg.sentenceGroups = data.sentenceGroups.slice(0, 20).map((g, i) => ({
+          id: String((g && g.id) || ("g" + i)).slice(0, 40),
+          name: String((g && g.name) || ("Nhóm " + (i + 1))).slice(0, 60),
+          sentences: Array.isArray(g && g.sentences)
+            ? g.sentences.map(s => String(s).trim()).filter(Boolean).slice(0, 200) : [],
+        }));
+      }
       saveConfig(APP.cfg);
       APP.filter.cfg = APP.cfg;
+      APP.restartAutoInsert();
       APP.log("status", "Đã lưu cấu hình.");
       APP.pushState();
       return json(res, 200, { ok: true, config: APP.cfg });
@@ -411,7 +478,8 @@ const server = http.createServer(async (req, res) => {
       const user = String(data.user || "Người test").trim() || "Người test";
       const text = String(data.text || "").trim();
       if (!text) return json(res, 400, { ok: false, error: "Chưa nhập comment test" });
-      return json(res, 200, { ok: APP.ingestComment(user, user, text) });
+      const r = APP.ingestComment(user, user, text, { owner: true, fake: true });
+      return json(res, 200, { ok: true, accepted: r.accepted, reason: r.reason || null });
     }
     if (req.method === "POST" && p === "/api/speak") {
       const data = await readJson(req);
@@ -468,4 +536,5 @@ server.listen(PORT, () => {
   console.log("=".repeat(58));
   APP.ttsWorker();
   APP.playerDispatcher();
+  APP.restartAutoInsert();
 });
