@@ -28,7 +28,8 @@ comment cũ từ nhiều phút trước.
 
 ## Cấu hình (sửa trên giao diện, lưu vào `config.json`)
 
-- Giọng đọc (HoaiMy/NamMinh), tốc độ, đọc kèm tên hay không
+- Giọng đọc (HoaiMy/NamMinh), tốc độ, đọc kèm tên hay không, **mẫu đọc tên tuỳ chỉnh**
+  (`{ten} nói:` / `Bạn {ten} nhắn:` / để trống = chỉ đọc tên…)
 - Hàng chờ tối đa, cooldown mỗi người, thời gian chống trùng câu, độ dài tối đa
 - **Từ cấm**: comment chứa là bỏ hẳn (tự bắt cả viết né: bỏ dấu, `đ.m`, `dmm`, chữ lặp).
   Bộ lọc phân biệt được các cặp dễ nhầm — `các`≠`cặc`, `đi`≠`đĩ`, `buổi`≠`buồi`,

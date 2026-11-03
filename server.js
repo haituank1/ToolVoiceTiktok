@@ -30,6 +30,7 @@ const DEFAULT_CONFIG = {
   voice: "vi-VN-HoaiMyNeural",
   ratePercent: 0,
   readName: true,
+  nameTemplate: "{ten} nói:",
   nameMaxChars: 15,
   cooldownSeconds: 20,
   dedupeSeconds: 60,
@@ -166,7 +167,16 @@ class App {
     let text = normalizeText(item.text);
     if (this.cfg.readName) {
       let name = String(item.user || "").trim().slice(0, parseInt(this.cfg.nameMaxChars ?? 15));
-      if (name && /[0-9a-zA-Zà-ỹÀ-Ỹ]/.test(name)) text = `${name} nói: ${text}`;
+      if (name && /[0-9a-zA-Zà-ỹÀ-Ỹ]/.test(name)) {
+        // Mẫu đọc tên tuỳ chỉnh: "{ten} nói:" / "Bạn {ten} nhắn:" / "{ten} bảo:"...
+        // Mẫu trống = chỉ đọc tên rồi tới nội dung; mẫu không có {ten} thì tên đứng trước mẫu.
+        const tpl = String(this.cfg.nameTemplate ?? "{ten} nói:").trim();
+        let prefix;
+        if (!tpl) prefix = name;
+        else if (tpl.includes("{ten}")) prefix = tpl.split("{ten}").join(name).trim();
+        else prefix = (name + " " + tpl).trim();
+        if (prefix) text = `${prefix} ${text}`;
+      }
     }
     return text;
   }

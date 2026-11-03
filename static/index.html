@@ -157,7 +157,9 @@
             <input type="number" id="cfgMaxChars" min="20" max="500">
           </div>
         </div>
-        <div class="chk"><input type="checkbox" id="cfgReadName"><label for="cfgReadName">Đọc kèm tên người comment (“A nói: …”)</label></div>
+        <div class="chk"><input type="checkbox" id="cfgReadName"><label for="cfgReadName">Đọc kèm tên người comment</label></div>
+        <label>Mẫu đọc tên — dùng <b>{ten}</b> là chỗ chèn tên. Ví dụ: “{ten} nói:” / “Bạn {ten} nhắn:” / “{ten} bảo:”. Để trống = chỉ đọc tên, không có chữ nối</label>
+        <input type="text" id="cfgNameTemplate" placeholder="{ten} nói:">
         <div class="chk"><input type="checkbox" id="cfgTruncate"><label for="cfgTruncate">Comment quá dài: cắt bớt rồi đọc (bỏ chọn = bỏ cả comment)</label></div>
         <div class="chk"><input type="checkbox" id="cfgDropLinks"><label for="cfgDropLinks">Bỏ comment chứa link / tên miền (chống quảng cáo)</label></div>
 
@@ -282,7 +284,8 @@ async function loadConfig(){
   $("cfgVoice").value = cfg.voice; $("cfgRate").value = cfg.ratePercent; $("rateVal").textContent = cfg.ratePercent + "%";
   $("cfgMaxQueue").value = cfg.maxQueue; $("cfgCooldown").value = cfg.cooldownSeconds;
   $("cfgDedupe").value = cfg.dedupeSeconds; $("cfgMaxChars").value = cfg.maxChars;
-  $("cfgReadName").checked = !!cfg.readName; $("cfgTruncate").checked = !!cfg.truncateLong; $("cfgDropLinks").checked = !!cfg.dropLinks;
+  $("cfgReadName").checked = !!cfg.readName; $("cfgNameTemplate").value = cfg.nameTemplate ?? "{ten} nói:";
+  $("cfgTruncate").checked = !!cfg.truncateLong; $("cfgDropLinks").checked = !!cfg.dropLinks;
   $("cfgBlocked").value = (cfg.blockedWords||[]).join("\n");
   $("cfgIgnore").value = (cfg.ignorePhrases||[]).join("\n");
   $("cfgBanned").value = (cfg.bannedUsers||[]).join("\n");
@@ -292,7 +295,8 @@ $("btnSaveCfg").onclick = async ()=>{
     voice: $("cfgVoice").value, ratePercent: parseInt($("cfgRate").value||"0"),
     maxQueue: parseInt($("cfgMaxQueue").value||"6"), cooldownSeconds: parseInt($("cfgCooldown").value||"20"),
     dedupeSeconds: parseInt($("cfgDedupe").value||"60"), maxChars: parseInt($("cfgMaxChars").value||"120"),
-    readName: $("cfgReadName").checked, truncateLong: $("cfgTruncate").checked, dropLinks: $("cfgDropLinks").checked,
+    readName: $("cfgReadName").checked, nameTemplate: $("cfgNameTemplate").value,
+    truncateLong: $("cfgTruncate").checked, dropLinks: $("cfgDropLinks").checked,
     blockedWords: $("cfgBlocked").value, ignorePhrases: $("cfgIgnore").value, bannedUsers: $("cfgBanned").value
   };
   const r = await post("/api/config", body);
