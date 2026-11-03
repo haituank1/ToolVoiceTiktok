@@ -8,23 +8,19 @@ echo   ToolVoiceTikTok - Doc comment TikTok LIVE thanh giong noi
 echo ============================================================
 echo.
 
-rem --- Tim Python (py launcher hoac python) ---
-where py >nul 2>nul && set PY=py -3
-if not defined PY where python >nul 2>nul && set PY=python
-if not defined PY (
-  echo [LOI] May chua co Python.
-  echo Hay tai Python tai https://www.python.org/downloads/
-  echo Khi cai nho tich o "Add python.exe to PATH" roi chay lai file nay.
+rem --- Kiem tra Node.js ---
+where node >nul 2>nul
+if errorlevel 1 (
+  echo [LOI] May chua co Node.js.
+  echo Hay tai ban LTS tai https://nodejs.org/ , cai xong chay lai file nay.
   pause
   exit /b 1
 )
 
-rem --- Tao moi truong ao lan dau ---
-if not exist ".venv\Scripts\python.exe" (
-  echo Dang cai dat lan dau, cho khoang 1-2 phut...
-  %PY% -m venv .venv
-  ".venv\Scripts\python.exe" -m pip install --upgrade pip
-  ".venv\Scripts\python.exe" -m pip install -r requirements.txt
+rem --- Cai thu vien lan dau ---
+if not exist "node_modules" (
+  echo Dang cai dat thu vien lan dau, cho khoang 1-2 phut...
+  call npm install
   if errorlevel 1 (
     echo [LOI] Cai thu vien that bai. Kiem tra mang roi chay lai file nay.
     pause
@@ -37,5 +33,5 @@ start "" /min cmd /c "timeout /t 3 >nul & start http://localhost:3220"
 echo Tool dang chay tai http://localhost:3220
 echo Giu nguyen cua so nay khi dang live. Dong cua so = tat tool.
 echo.
-".venv\Scripts\python.exe" server.py
+node server.js
 pause

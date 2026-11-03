@@ -1,4 +1,0 @@
-TikTokLive>=6.5
-edge-tts>=7
-gTTS>=2.5
-aiohttp>=3.9
