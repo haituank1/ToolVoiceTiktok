@@ -109,7 +109,13 @@ class App {
     const d = new Date();
     const t = [d.getHours(), d.getMinutes(), d.getSeconds()].map(x => String(x).padStart(2, "0")).join(":");
     this.logs.push({ t, kind, text, user });
-    if (this.logs.length > 80) this.logs = this.logs.slice(-80);
+    if (this.logs.length > 500) this.logs = this.logs.slice(-500);
+    // lưu lại vào file nhat-ky.log cạnh server để tắt tool vẫn xem lại được
+    try {
+      const day = d.toISOString().slice(0, 10);
+      fs.appendFileSync(path.join(BASE, "nhat-ky.log"),
+        `[${day} ${t}] ${kind}${user ? " " + user : ""}: ${text}\n`, "utf-8");
+    } catch { /* ghi log lỗi thì thôi, không làm gián đoạn tool */ }
   }
 
   broadcast(msg) {
@@ -127,8 +133,13 @@ class App {
       current: this.current ? { user: this.current.user, text: this.current.text } : null,
       rawWaiting: this.rawQueue.size,
       audioWaiting: this.audioQueue.size,
+      waitingConvert: this.rawQueue.items.map(i => ({ user: i.user, text: i.text })),
+      waitingPlay: [
+        ...(this._heldItem && this._heldItem._held ? [{ user: this._heldItem.user, text: this._heldItem.text }] : []),
+        ...this.audioQueue.items.map(i => ({ user: i.user, text: i.text })),
+      ],
       stats: this.stats,
-      logs: this.logs.slice(-30),
+      logs: this.logs.slice(-100),
     });
   }
 
@@ -263,23 +274,47 @@ class App {
   async playerDispatcher() {
     while (true) {
       const item = await this.audioQueue.take();
-      while (this.paused || this.clients.size === 0) await sleep(400);
-      this.current = item;
       item.id = item.id || `v${++this._seq}-${Math.random().toString(16).slice(2, 8)}`;
-      const donePromise = new Promise(res => { this._currentDoneResolve = res; });
-      this.broadcast({
-        type: "play", id: item.id, user: item.user, text: item.text,
-        spoken: item.spoken || item.text, audio: item.audio.toString("base64"),
-      });
-      this.pushState();
-      let timer;
-      const timeout = new Promise(res => { timer = setTimeout(() => res("timeout"), 600000); });
-      const result = await Promise.race([donePromise, timeout]);
-      clearTimeout(timer);
-      if (result === "timeout") this.log("error", "Trang phát không phản hồi 10 phút, bỏ qua voice này.");
-      else this.stats.played++;
+      item._held = true;              // đang được dispatcher giữ (chờ phát/tạm dừng)
+      this._heldItem = item;
+      // Gửi voice tới trang phát; nếu trang mất kết nối giữa chừng (đóng tab,
+      // rớt mạng, trình duyệt treo) thì GIỮ NGUYÊN voice này và gửi lại khi
+      // trang kết nối lại — không chờ vô hạn, không mất voice.
+      let finished = false;
+      while (!finished) {
+        while (this.paused || this.clients.size === 0) await sleep(400);
+        this.current = item;
+        item._held = false;           // đã gửi đi phát -> không còn tính là "chờ"
+        const donePromise = new Promise(res => { this._currentDoneResolve = res; });
+        this.broadcast({
+          type: "play", id: item.id, user: item.user, text: item.text,
+          spoken: item.spoken || item.text, audio: item.audio.toString("base64"),
+        });
+        this.pushState();
+        let timer, watcher;
+        const timeout = new Promise(res => { timer = setTimeout(() => res("timeout"), 120000); });
+        const noClients = new Promise(res => {
+          watcher = setInterval(() => { if (this.clients.size === 0) res("retry"); }, 1000);
+        });
+        const result = await Promise.race([donePromise, timeout, noClients]);
+        clearTimeout(timer); clearInterval(watcher);
+        this._currentDoneResolve = null;
+        if (result === "done") {
+          this.stats.played++;
+          finished = true;
+        } else if (result === "timeout") {
+          this.log("error", "Trang phát không phản hồi 2 phút, bỏ qua voice này.");
+          finished = true;
+        } else {
+          // "retry": trang phát vừa mất kết nối — vòng lại, chờ trang nối lại rồi gửi lại
+          this.log("status", "Trang phát mất kết nối, giữ voice chờ gửi lại...");
+          this.current = null;
+          this.pushState();
+          await sleep(600);
+        }
+      }
       this.current = null;
-      this._currentDoneResolve = null;
+      this._heldItem = null;
       this.pushState();
     }
   }
@@ -393,7 +428,22 @@ const server = http.createServer(async (req, res) => {
 });
 
 const wss = new WebSocketServer({ server, path: "/ws" });
+// Heartbeat: phát hiện kết nối chết ngầm (treo/rớt mạng mà không đóng hẳn)
+// để loại khỏi danh sách trang phát sau tối đa ~60 giây thay vì kẹt vô hạn.
+setInterval(() => {
+  for (const ws of [...APP.clients]) {
+    if (ws.isAlive === false) {
+      try { ws.terminate(); } catch { /* bỏ qua */ }
+      APP.clients.delete(ws);
+      continue;
+    }
+    ws.isAlive = false;
+    try { ws.ping(); } catch { /* bỏ qua */ }
+  }
+}, 30000);
 wss.on("connection", ws => {
+  ws.isAlive = true;
+  ws.on("pong", () => { ws.isAlive = true; });
   APP.clients.add(ws);
   APP.pushState();
   ws.on("message", raw => {

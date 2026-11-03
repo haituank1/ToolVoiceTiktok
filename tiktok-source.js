@@ -56,11 +56,16 @@ class TikTokSource {
         const conn = new TLC.TikTokLiveConnection("@" + this.username, {});
         this.conn = conn;
 
+        let lastActivity = Date.now();
         const disconnected = new Promise(resolve => {
           conn.on(TLC.ControlEvent.CONNECTED, () => {
+            lastActivity = Date.now();
             this.onStatus({ state: "connected", message: `Đã kết nối phòng @${this.username}` + (conn.roomId ? ` (room ${conn.roomId})` : "") });
           });
+          // bất kỳ dữ liệu nào từ phòng live cũng tính là "còn sống"
+          conn.on(TLC.ControlEvent.DECODED_DATA, () => { lastActivity = Date.now(); });
           conn.on(TLC.WebcastEvent.CHAT, data => {
+            lastActivity = Date.now();
             try {
               const user = data.user || {};
               const uid = user.uniqueId || user.displayId || data.uniqueId || user.nickname || "";
@@ -77,13 +82,27 @@ class TikTokSource {
           conn.connect(),
           sleep(30000).then(() => { throw new Error("timeout khi kết nối TikTok"); }),
         ]);
-        // đã kết nối: chờ tới khi mất kết nối / live kết thúc
+        // đã kết nối: chờ tới khi mất kết nối / live kết thúc / mất tín hiệu quá lâu
         const why = await Promise.race([
           disconnected,
           (async () => { while (!this._stop && conn.isConnected) await sleep(1000); return "closed"; })(),
+          (async () => {
+            // watchdog: 3 phút không có bất kỳ tín hiệu nào từ phòng live
+            // = kết nối đã chết ngầm -> tự kết nối lại thay vì im lặng mãi
+            while (!this._stop) {
+              await sleep(5000);
+              if (Date.now() - lastActivity > 180000) return "watchdog";
+            }
+            return "stopped";
+          })(),
         ]);
         if (!this._stop) {
-          this.onStatus({ state: "ended", message: why === "disconnected" ? "Mất kết nối / live đã kết thúc." : "Kết nối đã đóng." });
+          this.onStatus({
+            state: "ended",
+            message: why === "disconnected" ? "Mất kết nối / live đã kết thúc. Đang thử kết nối lại..."
+              : why === "watchdog" ? "Mất tín hiệu phòng live quá 3 phút, đang tự kết nối lại..."
+              : "Kết nối đã đóng. Đang thử kết nối lại...",
+          });
         }
       } catch (e) {
         if (this._stop) break;

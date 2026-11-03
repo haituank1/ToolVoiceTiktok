@@ -34,7 +34,12 @@
   .stat b{display:block;font-size:19px}
   .stat span{font-size:11.5px;color:var(--muted)}
   .now{font-size:15px;background:var(--card2);border-left:4px solid var(--accent2);border-radius:8px;padding:10px 12px;min-height:44px}
-  .log{max-height:300px;overflow:auto;font-size:13px;line-height:1.5}
+  .log{max-height:430px;overflow:auto;font-size:13px;line-height:1.5}
+  .qlist{font-size:13.5px;line-height:1.5}
+  .qlist div{padding:4px 8px;border-bottom:1px dashed #262c38}
+  .qlist .n{color:var(--accent2);font-weight:700;margin-right:6px}
+  .qhead{font-size:12.5px;color:var(--muted);margin:10px 0 4px;text-transform:uppercase;letter-spacing:.4px}
+  .qempty{color:var(--muted);font-size:13px;padding:2px 8px}
   .log div{padding:3px 0;border-bottom:1px dashed #262c38}
   .log .t{color:var(--muted);font-size:11.5px;margin-right:6px}
   .log .drop{color:#e8a13c}.log .error{color:var(--bad)}.log .ok{color:#cfe8d8}.log .status{color:var(--accent2)}
@@ -121,7 +126,16 @@
 
     <div>
       <div class="card">
-        <h2>Nhật ký</h2>
+        <h2>Danh sách chờ</h2>
+        <div class="qhead">🔊 Chờ phát (đến lượt theo thứ tự)</div>
+        <div class="qlist" id="qPlayList"><div class="qempty">— trống —</div></div>
+        <div class="qhead">⏳ Chờ chuyển giọng</div>
+        <div class="qlist" id="qConvList"><div class="qempty">— trống —</div></div>
+        <div class="hint">Nhìn đây là biết tool đang kẹt ở đâu: chờ phát 쌓 cao = bên phát có vấn đề; chờ chuyển giọng 쌓 = mạng/TTS chậm; cả hai trống mà không có tiếng = mất kết nối TikTok.</div>
+      </div>
+
+      <div class="card">
+        <h2>Nhật ký (100 dòng gần nhất)</h2>
         <div class="log" id="logBox"><div>—</div></div>
       </div>
 
@@ -258,6 +272,13 @@ function renderState(m){
   if(!currentId && !m.current) $("nowPlaying").textContent = "— đang chờ voice —";
   $("logBox").innerHTML = (m.logs||[]).slice().reverse().map(l =>
     `<div><span class="t">${l.t}</span><span class="${l.kind}">${l.user ? "<b>"+escapeHtml(l.user)+":</b> " : ""}${escapeHtml(l.text)}</span></div>`).join("") || "<div>—</div>";
+  const renderQ = (el, items) => {
+    el.innerHTML = (items && items.length)
+      ? items.map((it, i) => `<div><span class="n">${i+1}.</span><b>${escapeHtml(it.user)}</b>: ${escapeHtml(it.text)}</div>`).join("")
+      : '<div class="qempty">— trống —</div>';
+  };
+  renderQ($("qPlayList"), m.waitingPlay);
+  renderQ($("qConvList"), m.waitingConvert);
 }
 function escapeHtml(s){ return String(s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
