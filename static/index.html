@@ -215,6 +215,10 @@
           <button id="btnAddGroup" class="ghost" type="button">＋ Thêm nhóm</button>
         </div>
         <div class="hint">Mỗi nhóm: sửa tên ngay trong ô của nhóm, gõ các câu <b>mỗi dòng 1 câu</b>. Câu tự chèn là của bạn nên luôn được thêm vào hàng chờ, không bị giới hạn “số voice chờ tối đa”. Sửa xong nhớ bấm Lưu cấu hình.</div>
+        <div class="hint">🔊 Voice của câu tự chèn được <b>lưu lại</b> trong thư mục <b>voice-cache</b> cạnh tool: mỗi câu chỉ chuyển giọng 1 lần, những lần lặp sau lấy file ra phát luôn — nhanh và không tốn lượt gọi. Đổi giọng/tốc độ thì tool tự chuyển lại bản mới. Xoá thư mục đó (hoặc bấm nút dưới) là ép chuyển lại từ đầu.</div>
+        <div class="row">
+          <button id="btnClearCache" class="ghost" type="button">🗑 Xoá bộ nhớ đệm giọng</button>
+        </div>
 
         <div class="row" style="margin-top:14px">
           <button id="btnSaveCfg">💾 Lưu cấu hình</button>
@@ -390,6 +394,10 @@ function collectGroups(){
     sentences: b.querySelector(".gSentences").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
   }));
 }
+$("btnClearCache").onclick = async ()=>{
+  const r = await post("/api/clear-voice-cache");
+  alert(r.ok ? `Đã xoá ${r.removed || 0} file voice đã lưu. Lần chèn tới tool sẽ chuyển giọng lại từ đầu.` : "Xoá thất bại.");
+};
 $("btnAddGroup").onclick = ()=>{
   const name = $("newGroupName").value.trim() || "Nhóm mới";
   const gid = "g" + Date.now().toString(36);

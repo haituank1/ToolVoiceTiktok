@@ -15,6 +15,7 @@ const http = require("http");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 const { normalizeText, splitSentences } = require("./chuan-hoa");
 const { CommentFilter } = require("./filters");
@@ -22,6 +23,10 @@ const { TikTokSource } = require("./tiktok-source");
 
 const BASE = __dirname;
 const CONFIG_PATH = path.join(BASE, "config.json");
+// Bộ nhớ đệm giọng cho câu TỰ CHÈN: các câu này lặp lại y hệt nhau nên voice
+// chuyển được 1 lần sẽ lưu vào thư mục này, lần sau lấy ra phát luôn.
+const CACHE_DIR = path.join(BASE, "voice-cache");
+const CACHE_INDEX = path.join(CACHE_DIR, "index.json");
 const PORT = 3220;
 const PROXY = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY || "";
 
@@ -253,6 +258,53 @@ class App {
     return text;
   }
 
+  // ---------------- bộ nhớ đệm giọng cho câu tự chèn ----------------
+  // Khoá cache gồm cả giọng + tốc độ: đổi giọng/tốc độ là tự dùng khoá mới,
+  // không bao giờ phát nhầm voice của thiết lập cũ.
+  _cacheKey(spoken) {
+    const raw = `${this.cfg.voice}|${parseInt(this.cfg.ratePercent ?? 0)}|${spoken}`;
+    return crypto.createHash("sha256").update(raw).digest("hex").slice(0, 32);
+  }
+
+  _loadVoiceCache(spoken) {
+    try {
+      const f = path.join(CACHE_DIR, this._cacheKey(spoken) + ".mp3");
+      if (fs.existsSync(f)) {
+        const buf = fs.readFileSync(f);
+        if (buf.length > 500) return buf;
+      }
+    } catch { /* file hỏng/không đọc được -> coi như chưa có cache */ }
+    return null;
+  }
+
+  _saveVoiceCache(spoken, buf, originalText) {
+    try {
+      fs.mkdirSync(CACHE_DIR, { recursive: true });
+      const key = this._cacheKey(spoken);
+      fs.writeFileSync(path.join(CACHE_DIR, key + ".mp3"), buf);
+      let idx = {};
+      try { idx = JSON.parse(fs.readFileSync(CACHE_INDEX, "utf-8")); } catch { idx = {}; }
+      idx[key] = { text: originalText, spoken, voice: this.cfg.voice,
+                   rate: parseInt(this.cfg.ratePercent ?? 0), savedAt: new Date().toISOString() };
+      fs.writeFileSync(CACHE_INDEX, JSON.stringify(idx, null, 1), "utf-8");
+      this.log("auto", `Đã lưu voice vào bộ nhớ đệm: ${originalText}`);
+    } catch (e) {
+      this.log("error", "Không lưu được voice vào bộ nhớ đệm: " + String((e && e.message) || e));
+    }
+  }
+
+  clearVoiceCache() {
+    let removed = 0;
+    try {
+      if (fs.existsSync(CACHE_DIR)) {
+        for (const name of fs.readdirSync(CACHE_DIR)) {
+          try { fs.unlinkSync(path.join(CACHE_DIR, name)); removed++; } catch { /* bỏ qua */ }
+        }
+      }
+    } catch { /* thư mục không có thì thôi */ }
+    return removed;
+  }
+
   async synthesize(text) {
     const rate = parseInt(this.cfg.ratePercent ?? 0);
     let lastErr = null;
@@ -317,7 +369,14 @@ class App {
       const item = await this.rawQueue.take();
       try {
         const spoken = this.spokenText(item);
-        const audio = await this.synthesize(spoken);
+        // Câu tự chèn: có voice sẵn trong bộ nhớ đệm thì dùng luôn, khỏi chuyển lại
+        let audio = item.auto ? this._loadVoiceCache(spoken) : null;
+        if (audio) {
+          this.log("auto", `Dùng voice có sẵn trong bộ nhớ đệm: ${item.text}`);
+        } else {
+          audio = await this.synthesize(spoken);
+          if (audio && item.auto) this._saveVoiceCache(spoken, audio, item.text);
+        }
         if (audio) this.audioQueue.push({ ...item, spoken, audio });
         else {
           this.stats.tts_error++;
@@ -472,6 +531,12 @@ const server = http.createServer(async (req, res) => {
       APP.log("status", "Đã xoá toàn bộ hàng chờ.");
       APP.pushState();
       return json(res, 200, { ok: true });
+    }
+    if (req.method === "POST" && p === "/api/clear-voice-cache") {
+      const removed = APP.clearVoiceCache();
+      APP.log("status", `Đã xoá bộ nhớ đệm giọng (${removed} file).`);
+      APP.pushState();
+      return json(res, 200, { ok: true, removed });
     }
     if (req.method === "POST" && p === "/api/test-comment") {
       const data = await readJson(req);
