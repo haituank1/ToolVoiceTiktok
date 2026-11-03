@@ -42,9 +42,12 @@ const DEFAULT_CONFIG = {
   blockedWords: [
     "địt", "đụ", "lồn", "cặc", "buồi", "chịch", "đéo", "vãi lồn", "vãi cặc",
     "con đĩ", "đĩ", "cave", "đồ chó", "chó đẻ", "mẹ mày", "bố mày", "cứt",
-    "súc vật", "ngu lồn", "thằng chó", "con chó", "đm", "dmm", "vcl", "vl",
+    "súc vật", "ngu lồn", "thằng chó", "con chó", "đm", "dmm",
     "đệch", "mẹ kiếp", "tổ sư", "cha mày", "óc chó", "khốn nạn",
   ],
+  // Từ đệm kiểu "vl", "vcl": thường chỉ là từ nhấn mạnh ("vui vl" = vui lắm),
+  // không cấm cả câu — chỉ tự xoá khỏi câu trước khi đọc cho khỏi kỳ.
+  softWords: ["vl", "vcl"],
   ignorePhrases: ["hoa rơi", "nam mô a di đà phật", "nam mô", "a di đà phật"],
   bannedUsers: [],
 };
@@ -55,6 +58,12 @@ function loadConfig() {
     try {
       const saved = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
       for (const k of Object.keys(DEFAULT_CONFIG)) if (k in saved) cfg[k] = saved[k];
+      // Di trú config cũ: "vl"/"vcl" từng nằm trong từ cấm, nay là từ đệm.
+      // Config nào chưa có softWords thì tự chuyển 2 từ này sang nhóm từ đệm;
+      // người dùng muốn cấm hẳn lại thì cứ thêm lại vào ô Từ cấm trên giao diện.
+      if (!("softWords" in saved) && Array.isArray(cfg.blockedWords)) {
+        cfg.blockedWords = cfg.blockedWords.filter(w => !["vl", "vcl"].includes(String(w).trim().toLowerCase()));
+      }
     } catch { /* config hỏng -> dùng mặc định */ }
   }
   return cfg;
@@ -353,7 +362,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && p === "/api/config") {
       const data = await readJson(req);
       for (const [k, v] of Object.entries(data)) if (k in DEFAULT_CONFIG) APP.cfg[k] = v;
-      for (const key of ["blockedWords", "ignorePhrases", "bannedUsers"]) {
+      for (const key of ["blockedWords", "softWords", "ignorePhrases", "bannedUsers"]) {
         if (typeof data[key] === "string")
           APP.cfg[key] = data[key].split(/\r?\n/).map(s => s.trim()).filter(Boolean);
       }

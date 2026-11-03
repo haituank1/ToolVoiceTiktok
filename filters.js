@@ -122,11 +122,33 @@ class CommentFilter {
     if (/^(.)\1{4,}$/.test(compact || ""))
       return { ok: false, reason: "spam_lap", text };
 
-    if (this._matchList(tokens, compact, cfg.blockedWords, accTokens))
+    // Từ đệm (vl, vcl...): không tính là từ cấm — chỉ xoá khỏi câu khi đọc.
+    const softForms = new Set((cfg.softWords || []).map(w => phraseForms(String(w)).compact).filter(Boolean));
+    const hardBlocked = (cfg.blockedWords || []).filter(w => {
+      const f = phraseForms(String(w));
+      return !(f.tokens.length === 1 && softForms.has(f.compact));
+    });
+
+    if (this._matchList(tokens, compact, hardBlocked, accTokens))
       return { ok: false, reason: "tu_cam", text };
 
     if (this._matchList(tokens, compact, cfg.ignorePhrases, accTokens, false))
       return { ok: false, reason: "bo_qua", text };
+
+    // xoá từ đệm khỏi nội dung trước khi đọc (comment vẫn được đọc bình thường)
+    if (softForms.size) {
+      const words = text.split(/\s+/);
+      const kept = words.filter(wd => {
+        const core = wd.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+        if (!core) return true;
+        return !softForms.has(normalizeForMatch(core).compact);
+      });
+      if (kept.length !== words.length) {
+        text = kept.join(" ").replace(/\s+([,.!?…;:])/g, "$1").trim();
+        if (!text || text.length < minChars) return { ok: false, reason: "qua_ngan", text };
+        ({ tokens, compact } = normalizeForMatch(text));
+      }
+    }
 
     const dedupeSec = parseInt(cfg.dedupeSeconds ?? 60);
     const lastU = this._userLastText.get(uniqueId);

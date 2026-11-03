@@ -181,6 +181,10 @@
         <textarea id="cfgBlocked"></textarea>
         <div class="hint">Tool tự bắt cả kiểu viết né: bỏ dấu, “đ.m”, “dmm”, chữ lặp “địttt”… nên bạn chỉ cần ghi từ gốc.</div>
 
+        <label>💬 Từ đệm — KHÔNG cấm câu, chỉ tự xoá từ này trước khi đọc (mỗi dòng 1 từ)</label>
+        <textarea id="cfgSoft" style="min-height:48px"></textarea>
+        <div class="hint">Ví dụ “vl”: trong “vui vl chúng mày ạ” nó chỉ có nghĩa “lắm”, nên câu vẫn được đọc — thành “vui chúng mày ạ”. Muốn cấm hẳn thì chuyển từ đó lên ô Từ cấm.</div>
+
         <label>⏩ Cụm từ bỏ qua — comment chứa là bỏ qua, không đọc (mỗi dòng 1 cụm). Hợp cho lệnh game / câu cửa miệng lặp lại</label>
         <textarea id="cfgIgnore" style="min-height:64px"></textarea>
 
@@ -308,6 +312,7 @@ async function loadConfig(){
   $("cfgReadName").checked = !!cfg.readName; $("cfgNameTemplate").value = cfg.nameTemplate ?? "{ten} nói:";
   $("cfgTruncate").checked = !!cfg.truncateLong; $("cfgDropLinks").checked = !!cfg.dropLinks;
   $("cfgBlocked").value = (cfg.blockedWords||[]).join("\n");
+  $("cfgSoft").value = (cfg.softWords||[]).join("\n");
   $("cfgIgnore").value = (cfg.ignorePhrases||[]).join("\n");
   $("cfgBanned").value = (cfg.bannedUsers||[]).join("\n");
 }
@@ -318,7 +323,7 @@ $("btnSaveCfg").onclick = async ()=>{
     dedupeSeconds: parseInt($("cfgDedupe").value||"60"), maxChars: parseInt($("cfgMaxChars").value||"120"),
     readName: $("cfgReadName").checked, nameTemplate: $("cfgNameTemplate").value,
     truncateLong: $("cfgTruncate").checked, dropLinks: $("cfgDropLinks").checked,
-    blockedWords: $("cfgBlocked").value, ignorePhrases: $("cfgIgnore").value, bannedUsers: $("cfgBanned").value
+    blockedWords: $("cfgBlocked").value, softWords: $("cfgSoft").value, ignorePhrases: $("cfgIgnore").value, bannedUsers: $("cfgBanned").value
   };
   const r = await post("/api/config", body);
   $("cfgMsg").textContent = r.ok ? "✅ Đã lưu, đang áp dụng ngay." : "Lưu thất bại.";

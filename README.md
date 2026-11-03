@@ -32,6 +32,7 @@ comment cũ từ nhiều phút trước.
   (`{ten} nói:` / `Bạn {ten} nhắn:` / để trống = chỉ đọc tên…)
 - Hàng chờ tối đa, cooldown mỗi người, thời gian chống trùng câu, độ dài tối đa
 - **Từ cấm**: comment chứa là bỏ hẳn (tự bắt cả viết né: bỏ dấu, `đ.m`, `dmm`, chữ lặp).
+- **Từ đệm** (mặc định `vl`, `vcl`): không cấm câu — thường chỉ là từ nhấn mạnh ("vui vl" = vui lắm), tool chỉ tự xoá từ đó trước khi đọc. Muốn cấm hẳn thì chuyển lên ô Từ cấm.
   Bộ lọc phân biệt được các cặp dễ nhầm — `các`≠`cặc`, `đi`≠`đĩ`, `buổi`≠`buồi`,
   `con đi`/`đồ chơi cho` vẫn được đọc bình thường
 - **Cụm từ bỏ qua**: cho lệnh game / câu lặp lại (mặc định: `hoa rơi`, `nam mô a di đà phật`…)
