@@ -44,6 +44,16 @@ comment cũ từ nhiều phút trước.
 
 Có sẵn ô **gửi comment giả** và **đọc thử 1 câu** để test khi chưa live.
 
+## Nhường tiếng cho NPC trong game (LiveGames)
+
+Khi chơi các game trong repo LiveGames (MC đám cưới, thầy chùa) cùng buổi live:
+NPC nói thành tiếng qua LiveBridge thì tool này **tự tắt tiếng voice khán giả
+đang phát + giữ nguyên hàng chờ**, NPC nói xong mới phát tiếp — không bao giờ
+chồng tiếng. Tool tự kết nối nghe trạng thái NPC ở `livebridgeUrl` (mặc định
+`ws://localhost:8787`, LiveBridge chưa chạy thì tự thử lại). Tắt cơ chế này
+bằng `npcMute: false` trong `config.json`. Trên trang phát hiện thanh
+"🔇 NPC đang nói" trong lúc nhường tiếng.
+
 ## Lưu ý thật
 
 - Phần bắt comment dùng đường **không chính thức** (TikTok không có API chính thức

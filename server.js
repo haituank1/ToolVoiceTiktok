@@ -16,7 +16,7 @@ const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { WebSocketServer } = require("ws");
+const { WebSocketServer, WebSocket } = require("ws");
 const { normalizeText, splitSentences } = require("./chuan-hoa");
 const { CommentFilter } = require("./filters");
 const { TikTokSource } = require("./tiktok-source");
@@ -32,6 +32,10 @@ const PROXY = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.
 
 const DEFAULT_CONFIG = {
   username: "lelienreview2",
+  // Nhường tiếng cho NPC trong game (MC đám cưới / thầy chùa qua LiveBridge):
+  // NPC nói thì voice khán giả tự tắt tiếng + giữ hàng chờ, nói xong phát tiếp.
+  npcMute: true,
+  livebridgeUrl: "ws://localhost:8787",
   voice: "vi-VN-HoaiMyNeural",
   ratePercent: 0,
   readName: true,
@@ -119,6 +123,7 @@ class App {
     this.audioQueue = new AsyncQueue();
     this.clients = new Set();
     this.paused = false;
+    this.npcHold = false;   // NPC trong game đang nói (qua LiveBridge) -> giữ mọi voice khán giả
     this.current = null;
     this._currentDoneResolve = null;
     this._seq = 0;
@@ -156,6 +161,7 @@ class App {
       type: "state",
       tiktok: this.tiktokStatus,
       paused: this.paused,
+      npcHold: this.npcHold,
       current: this.current ? { user: this.current.user, text: this.current.text } : null,
       rawWaiting: this.rawQueue.size,
       audioWaiting: this.audioQueue.size,
@@ -402,7 +408,7 @@ class App {
       // trang kết nối lại — không chờ vô hạn, không mất voice.
       let finished = false;
       while (!finished) {
-        while (this.paused || this.clients.size === 0) await sleep(400);
+        while (this.paused || this.npcHold || this.clients.size === 0) await sleep(400);
         this.current = item;
         item._held = false;           // đã gửi đi phát -> không còn tính là "chờ"
         const donePromise = new Promise(res => { this._currentDoneResolve = res; });
@@ -441,6 +447,18 @@ class App {
 
   playDone(id) {
     if (this.current && this.current.id === id && this._currentDoneResolve) this._currentDoneResolve("done");
+  }
+
+  // NPC trong game (MC / thầy) bắt đầu / nói xong — LiveBridge báo qua WS.
+  // Đang phát dở thì trang phát tự pause (xem static/index.html), câu chưa
+  // phát thì dispatcher giữ nguyên trong hàng chờ tới khi NPC nói xong.
+  setNpcHold(hold, text = "") {
+    if (!this.cfg.npcMute) hold = false;
+    if (this.npcHold === hold) return;
+    this.npcHold = hold;
+    this.log("status", hold ? `NPC đang nói, tạm giữ voice khán giả: ${text}` : "NPC nói xong, phát tiếp voice khán giả.");
+    this.broadcast({ type: "npc_hold", hold });
+    this.pushState();
   }
 
   clearQueues() {
@@ -593,6 +611,23 @@ wss.on("connection", ws => {
   ws.on("error", () => APP.clients.delete(ws));
 });
 
+/* Kết nối nghe trạng thái NPC từ LiveBridge (role=voice-monitor, không nhận
+   sự kiện game). LiveBridge chưa chạy thì cứ thử lại nhẹ nhàng, không lỗi. */
+function connectNpcMonitor() {
+  const url = String(APP.cfg.livebridgeUrl || "ws://localhost:8787").replace(/\/$/, "") + "/?role=voice-monitor";
+  let ws;
+  try { ws = new WebSocket(url); } catch { setTimeout(connectNpcMonitor, 5000); return; }
+  ws.on("message", raw => {
+    try {
+      const m = JSON.parse(String(raw));
+      if (m.type === "npc-voice") APP.setNpcHold(m.state === "start", m.text || "");
+    } catch { /* bỏ qua */ }
+  });
+  const retry = () => { APP.setNpcHold(false); setTimeout(connectNpcMonitor, 3000); };
+  ws.on("close", retry);
+  ws.on("error", () => { try { ws.close(); } catch { /* bỏ qua */ } });
+}
+
 server.listen(PORT, () => {
   console.log("=".repeat(58));
   console.log("  ToolVoiceTikTok (Node.js) — đọc comment TikTok LIVE thành giọng nói");
@@ -602,4 +637,5 @@ server.listen(PORT, () => {
   APP.ttsWorker();
   APP.playerDispatcher();
   APP.restartAutoInsert();
+  connectNpcMonitor();
 });

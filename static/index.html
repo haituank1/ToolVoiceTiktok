@@ -83,6 +83,7 @@
       <div class="card">
         <h2>2) Đang phát</h2>
         <div class="now" id="nowPlaying">— đang chờ voice —</div>
+        <div class="now" id="npcHoldBar" style="display:none;background:#3a1030;border-color:#a33">🔇 NPC trong game (MC / thầy) đang nói — voice khán giả tạm dừng, nói xong tự phát tiếp</div>
         <div class="row" style="margin-top:12px">
           <button id="btnPause" class="blue">⏸ Tạm dừng phát</button>
           <button id="btnSkip" class="ghost">⏭ Bỏ qua câu này</button>
@@ -233,6 +234,7 @@
 const $ = id => document.getElementById(id);
 let ws = null, audio = new Audio(), currentId = null, currentLabel = "";
 let audioUnlocked = false, pendingPlay = null;
+let npcHold = false, npcMuted = false, heldPlay = null;   // NPC trong game đang nói -> nhường tiếng tuyệt đối
 
 // ---------- chọn tab chính (chỉ 1 tab phát tiếng) ----------
 const TAB_ID = Math.random().toString(36).slice(2);
@@ -284,7 +286,16 @@ function connectWS(){
   ws.onmessage = ev => {
     let m; try{ m = JSON.parse(ev.data); }catch(e){ return; }
     if(m.type === "state") renderState(m);
-    else if(m.type === "play"){ if(isLeader) startPlay(m); else { /* tab phụ: không phát, tab chính sẽ báo xong */ } }
+    else if(m.type === "play"){ if(!isLeader) { /* tab phụ: không phát, tab chính sẽ báo xong */ } else if(npcHold){ heldPlay = m; } else startPlay(m); }
+    else if(m.type === "npc_hold"){
+      npcHold = !!m.hold;
+      $("npcHoldBar").style.display = npcHold ? "block" : "none";
+      if(npcHold && currentId && !audio.paused){ audio.pause(); npcMuted = true; }
+      if(!npcHold){
+        if(npcMuted){ npcMuted = false; const p = audio.play(); if(p) p.catch(()=>{}); }
+        else if(heldPlay){ const hp = heldPlay; heldPlay = null; startPlay(hp); }
+      }
+    }
     else if(m.type === "stop_current"){ if(currentId){ audio.pause(); audio.currentTime = 0; $("nowPlaying").textContent = "— đã bỏ qua —"; sendDone(); } }
   };
   ws.onclose = ()=> setTimeout(connectWS, 1500);
